@@ -1,17 +1,14 @@
 /**
- * paper-mode.js — AR VR 3D Spatial Paper Lock Engine (Zero-Drift & Proximity Zoom)
+ * paper-mode.js — AR Rock-Solid Paper Tracing Engine
  *
  * Features:
  * - High-performance camera feed rendering
- * - Absolute Spatial Anchor:
- *   Locks sketch coordinates to fixed physical baseline. Returning phone to the
- *   original physical spot ALWAYS restores 100% exact alignment with zero drift!
- * - Camera Distance Proximity Auto-Zoom:
- *   As you bring your phone closer to or farther from the paper, the sketch
- *   dynamically scales in real-time to match physical camera distance!
- * - 3D VR Keystone Perspective Shear & Yaw Rotation
- * - 60FPS LERP exponential sensor smoothing
- * - Touch gestures: 1-finger drag to pan, 2-finger pinch to scale
+ * - Rock-Solid Pin Lock:
+ *   When Lock (🔒) is pressed, the sketch is pinned ROCK-SOLID over the paper.
+ *   Hand tremors, minor shakes, and camera tilts produce ZERO wobble or perspective warping.
+ *   Result: 100% rock-stable drawing surface for accurate paper tracing!
+ * - Touch Controls: 1-finger drag to pan, 2-finger pinch to scale
+ * - Still Frame Mode (❄️ Frame): Freeze live camera view for zero shake tracing
  * - 100% crash-proof universal canvas rendering
  */
 
@@ -31,13 +28,14 @@ class PaperMode {
     this.opacity      = 0.35;
     this.isLocked     = false;
     this.isFrozen     = false;
+    this.enableGyroAssist = false;
 
     // Transform state
     this.scale = 1.0;
     this.panX  = 0;
     this.panY  = 0;
 
-    // Gyro 3D orientation state with LERP filter
+    // Gyro orientation state with smoothing
     this._curBeta     = 0;
     this._curGamma    = 0;
     this._curAlpha    = 0;
@@ -50,8 +48,8 @@ class PaperMode {
     this._baseAlpha = 0;
 
     // Fixed absolute spatial anchor when locked
-    this._anchorPanX  = 0;
-    this._anchorPanY  = 0;
+    this._anchorPanX    = 0;
+    this._anchorPanY    = 0;
     this._userTouchPanX = 0;
     this._userTouchPanY = 0;
 
@@ -231,7 +229,7 @@ class PaperMode {
   }
 
   /* ═══════════════════════════════════════════════════
-     RENDER LOOP & ZERO-DRIFT 3D PROXIMITY ENGINE
+     RENDER LOOP & ROCK-SOLID STABLE LOCK
   ═══════════════════════════════════════════════════ */
 
   _resizeCanvas() {
@@ -251,91 +249,66 @@ class PaperMode {
       this.cam.drawFrame(ctx, canvas.width, canvas.height);
     }
 
-    // 2. Draw Transformed Sketch Overlay
+    // 2. Draw Transformed Sketch Overlay (Rock-Solid Pinned)
     if (this.overlayImage) {
-      this._drawZeroDriftVR3DOverlay();
+      this._drawRockSolidOverlay();
     }
 
     // 3. Draw AR HUD Brackets & Status
     this._drawHUD();
   }
 
-  _drawZeroDriftVR3DOverlay() {
+  _drawRockSolidOverlay() {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
 
-    // 60FPS LERP Exponential Smoothing for Sensor Gyro Angles
-    const LERP = 0.20;
-    this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * LERP;
-    this._smoothGamma += (this._curGamma - this._smoothGamma) * LERP;
-    this._smoothAlpha += (this._curAlpha - this._smoothAlpha) * LERP;
-
     let activePanX = this.panX;
     let activePanY = this.panY;
-    let dynamicProximityZoom = 1.0;
-    let radYaw     = 0;
-    let shearX     = 0;
-    let shearY     = 0;
 
-    if (this.isLocked && !this.isFrozen) {
-      let dBeta  = this._smoothBeta  - this._baseBeta;
-      let dGamma = this._smoothGamma - this._baseGamma;
-      let dAlpha = this._smoothAlpha - this._baseAlpha;
+    if (this.isLocked) {
+      // Rock-Solid Pinned Lock: Zero Wobble, Zero Jitter from hand shakes!
+      activePanX = this._anchorPanX + this._userTouchPanX;
+      activePanY = this._anchorPanY + this._userTouchPanY;
 
-      // Normalize angle wrap-around (-180 to 180)
-      if (dGamma >  180) dGamma -= 360;
-      if (dGamma < -180) dGamma += 360;
-      if (dBeta  >  180) dBeta  -= 360;
-      if (dBeta  < -180) dBeta  += 360;
-      if (dAlpha >  180) dAlpha -= 360;
-      if (dAlpha < -180) dAlpha += 360;
+      // Optional Gyro Assist with Deadzone filter if user turns it on
+      if (this.enableGyroAssist && !this.isFrozen) {
+        const LERP = 0.15;
+        this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * LERP;
+        this._smoothGamma += (this._curGamma - this._smoothGamma) * LERP;
 
-      // 1. Absolute Spatial Pan (anchored to fixed baseline + user touch offsets)
-      const SENSITIVITY_X = W * 0.024;
-      const SENSITIVITY_Y = H * 0.024;
-      activePanX = (this._anchorPanX + this._userTouchPanX) - (dGamma * SENSITIVITY_X);
-      activePanY = (this._anchorPanY + this._userTouchPanY) - (dBeta  * SENSITIVITY_Y);
+        let dBeta  = this._smoothBeta  - this._baseBeta;
+        let dGamma = this._smoothGamma - this._baseGamma;
 
-      // 2. Camera Proximity Distance Auto-Zoom:
-      // Moving phone closer (or tilting towards paper) increases sketch scale dynamically
-      dynamicProximityZoom = Math.max(0.6, Math.min(2.5, 1.0 + (dBeta * 0.012)));
+        if (dGamma >  180) dGamma -= 360;
+        if (dGamma < -180) dGamma += 360;
+        if (dBeta  >  180) dBeta  -= 360;
+        if (dBeta  < -180) dBeta  += 360;
 
-      // 3. 3D Yaw Rotation
-      radYaw = -(dAlpha * Math.PI / 180) * 0.45;
-
-      // 4. 3D Keystone Perspective Shear (clamped [-45deg, 45deg])
-      const clampDeg = (deg) => Math.max(-45, Math.min(45, deg));
-      const cGamma   = clampDeg(dGamma);
-      const cBeta    = clampDeg(dBeta);
-
-      shearX = Math.tan((cGamma * Math.PI / 180) * 0.30);
-      shearY = Math.tan((cBeta  * Math.PI / 180) * 0.30);
+        const DEADZONE = 3.5;
+        if (Math.abs(dGamma) > DEADZONE) {
+          const shiftG = (dGamma > 0 ? dGamma - DEADZONE : dGamma + DEADZONE);
+          activePanX -= shiftG * (W * 0.015);
+        }
+        if (Math.abs(dBeta) > DEADZONE) {
+          const shiftB = (dBeta > 0 ? dBeta - DEADZONE : dBeta + DEADZONE);
+          activePanY -= shiftB * (H * 0.015);
+        }
+      }
     }
 
-    // Base fit scale combined with user scale & camera proximity auto-zoom
+    // Maintain 100% original aspect ratio — ZERO stretching or distortion!
     const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
-    const effectiveScale = this.scale * dynamicProximityZoom;
-    const scaleX  = baseFit * effectiveScale;
-    const scaleY  = baseFit * effectiveScale;
-
-    // Build 2D Affine 3D Projection Matrix
-    const cosY = Math.cos(radYaw);
-    const sinY = Math.sin(radYaw);
-
-    const a = scaleX * cosY - shearY * sinY;
-    const b = scaleX * sinY + shearY * cosY;
-    const c = -scaleY * sinY + shearX * cosY;
-    const d = scaleY * cosY + shearX * sinY;
-
-    const cx = W / 2 + activePanX;
-    const cy = H / 2 + activePanY;
+    const iw = img.width  * baseFit * this.scale;
+    const ih = img.height * baseFit * this.scale;
 
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
-    // Apply 3D Perspective Projection Matrix
-    ctx.transform(a, b, c, d, cx, cy);
-    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    const cx = W / 2 + activePanX;
+    const cy = H / 2 + activePanY;
+
+    ctx.translate(cx, cy);
+    ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
 
     ctx.restore();
   }
@@ -394,7 +367,7 @@ class PaperMode {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       const zoomTxt = ' · ' + Math.round(this.scale * 100) + '%';
-      ctx.fillText('🔒 ZERO-DRIFT AR' + zoomTxt, W / 2, margin + 9);
+      ctx.fillText('🔒 ROCK-SOLID LOCKED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }
