@@ -15,7 +15,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/style.css?v=3" />
+  <link rel="stylesheet" href="css/style.css?v=4" />
 </head>
 <body>
 
@@ -82,10 +82,10 @@
 
     <div class="mode-grid">
       <button class="mode-card locked" id="mode-paper-btn" aria-label="Paper mode">
-        <span class="mc-badge">Gyro Lock</span>
+        <span class="mc-badge">Cam Lock</span>
         <span class="mc-icon">📄</span>
         <span class="mc-title">Paper</span>
-        <span class="mc-desc">Lock image to paper surface. Trace while looking through camera.</span>
+        <span class="mc-desc">Lock sketch to paper via camera tracking. Zoom in/out and pan — overlay follows.</span>
       </button>
 
       <button class="mode-card locked" id="mode-wall-btn" aria-label="Wall mode">
@@ -223,7 +223,7 @@
         <div class="settings-row" style="cursor:default;">
           <div class="settings-row-left">
             <span class="settings-row-title">📄 Paper Mode</span>
-            <span class="settings-row-sub">Gyro-locked overlay — trace on any flat surface</span>
+            <span class="settings-row-sub">Camera-locked overlay — tracks paper as you zoom and pan</span>
           </div>
         </div>
         <div class="settings-row" style="cursor:default;">
@@ -265,11 +265,11 @@
 </div>
 
 <!-- Scripts loaded in dependency order (no ES modules — works on file:// and GitHub Pages) -->
-<script src="js/sw-register.js?v=3"></script>
-<script src="js/camera.js?v=3"></script>
-<script src="js/paper-mode.js?v=3"></script>
-<script src="js/wall-mode.js?v=3"></script>
-<script src="js/app.js?v=3"></script>
+<script src="js/sw-register.js?v=4"></script>
+<script src="js/camera.js?v=4"></script>
+<script src="js/paper-mode.js?v=4"></script>
+<script src="js/wall-mode.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
 
 <script>
 (function() {

@@ -219,11 +219,10 @@ class PaperMode {
     // Simplistic: if most vectors point outward from centre → zoom in
     const cx = W / 2, cy = H / 2;
     let zoomVotes = 0;
-    for (const { ax, ay } of this._anchors) {
-      const outX = ax - cx, outY = ay - cy;
-      // find the motion for this anchor
-      const m = motions.find ? motions[0] : { dx, dy }; // fallback
-      const dot = outX * dx + outY * dy;
+    for (var _i = 0; _i < this._anchors.length; _i++) {
+      var outX = this._anchors[_i].ax - cx;
+      var outY = this._anchors[_i].ay - cy;
+      var dot  = outX * dx + outY * dy;
       if (dot > 0) zoomVotes++;
     }
     const zoomBias = zoomVotes / this._anchors.length;
@@ -373,17 +372,27 @@ class PaperMode {
 
     // Lock indicator
     if (this.isLocked) {
-      // Zoom level badge
       ctx.save();
-      ctx.fillStyle   = 'rgba(0,0,0,0.55)';
+      // Portable rounded rect (works on all Chrome/Android versions)
+      ctx.fillStyle = 'rgba(0,0,0,0.60)';
       ctx.beginPath();
-      ctx.roundRect(W / 2 - 52, margin - 5, 104, 26, 13);
+      var rx = W / 2 - 56, ry = margin - 6, rw = 112, rh = 28, rad = 14;
+      ctx.moveTo(rx + rad, ry);
+      ctx.lineTo(rx + rw - rad, ry);
+      ctx.arcTo(rx + rw, ry, rx + rw, ry + rad, rad);
+      ctx.lineTo(rx + rw, ry + rh - rad);
+      ctx.arcTo(rx + rw, ry + rh, rx + rw - rad, ry + rh, rad);
+      ctx.lineTo(rx + rad, ry + rh);
+      ctx.arcTo(rx, ry + rh, rx, ry + rh - rad, rad);
+      ctx.lineTo(rx, ry + rad);
+      ctx.arcTo(rx, ry, rx + rad, ry, rad);
+      ctx.closePath();
       ctx.fill();
-      ctx.fillStyle   = '#22c55e';
-      ctx.font        = 'bold 13px Inter, sans-serif';
-      ctx.textAlign   = 'center';
+      ctx.fillStyle    = '#22c55e';
+      ctx.font         = 'bold 13px Inter, sans-serif';
+      ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('✓  LOCKED  ×' + this._zoom.toFixed(1), W / 2, margin + 8);
+      ctx.fillText('\u2713  LOCKED  \u00d7' + this._zoom.toFixed(1), W / 2, margin + 8);
       ctx.restore();
     }
   }
