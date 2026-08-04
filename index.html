@@ -252,6 +252,12 @@
 <!-- Toast container -->
 <div id="toast-container" role="status" aria-live="polite"></div>
 
+<!-- Pull-to-refresh indicator -->
+<div id="ptr-indicator" aria-hidden="true">
+  <div class="ptr-circle"><div class="ptr-arc" id="ptr-arc"></div></div>
+  <span class="ptr-label" id="ptr-label">Pull to refresh</span>
+</div>
+
 <!-- Update banner -->
 <div id="update-toast" role="alert">
   <p>✨ Update available!</p>
@@ -264,5 +270,86 @@
 <script src="js/paper-mode.js?v=2"></script>
 <script src="js/wall-mode.js?v=2"></script>
 <script src="js/app.js?v=2"></script>
+
+<script>
+(function() {
+  var AR_SCREENS = ['screen-paper', 'screen-wall'];
+  var THRESHOLD  = 90;  // px to trigger
+  var startY = 0, currentY = 0, pulling = false, triggered = false;
+
+  var ptrEl    = document.getElementById('ptr-indicator');
+  var ptrArc   = document.getElementById('ptr-arc');
+  var ptrLabel = document.getElementById('ptr-label');
+
+  function isARActive() {
+    return AR_SCREENS.some(function(id) {
+      var el = document.getElementById(id);
+      return el && el.classList.contains('active');
+    });
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    if (isARActive()) return;
+    triggered = false;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!pulling || isARActive()) return;
+    currentY = e.touches[0].clientY;
+    var delta = currentY - startY;
+    if (delta <= 0) { hidePTR(); return; }
+
+    // Rotate arc proportionally to pull distance
+    var progress = Math.min(delta / THRESHOLD, 1);
+    ptrArc.style.transform = 'rotate(' + (progress * 300) + 'deg)';
+
+    if (delta > 10) {
+      ptrEl.classList.add('visible');
+      if (delta >= THRESHOLD && !triggered) {
+        ptrLabel.textContent = 'Release to refresh';
+        ptrArc.style.borderTopColor = '#22c55e';
+        ptrArc.style.borderRightColor = '#86efac';
+      } else if (delta < THRESHOLD) {
+        ptrLabel.textContent = 'Pull to refresh';
+        ptrArc.style.borderTopColor = '';
+        ptrArc.style.borderRightColor = '';
+      }
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() {
+    if (!pulling || isARActive()) return;
+    pulling = false;
+    var delta = currentY - startY;
+
+    if (delta >= THRESHOLD && !triggered) {
+      triggered = true;
+      ptrArc.classList.add('spinning');
+      ptrLabel.textContent = 'Refreshing...';
+      // Clear all caches then reload
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+        }).then(function() { window.location.reload(true); });
+      } else {
+        window.location.reload(true);
+      }
+    } else {
+      hidePTR();
+    }
+  }, { passive: true });
+
+  function hidePTR() {
+    ptrEl.classList.remove('visible');
+    ptrArc.classList.remove('spinning');
+    ptrArc.style.transform = '';
+    ptrArc.style.borderTopColor = '';
+    ptrArc.style.borderRightColor = '';
+    ptrLabel.textContent = 'Pull to refresh';
+  }
+})();
+</script>
 </body>
 </html>
