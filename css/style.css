@@ -176,7 +176,7 @@ html, body {
 .ar-hud {
   position: absolute; inset: 0; pointer-events: none;
   display: flex; flex-direction: column; justify-content: space-between;
-  padding: 0; z-index: 1;
+  padding: 0; z-index: 10;
 }
 
 /* Top bar in AR */
@@ -184,7 +184,8 @@ html, body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 16px; padding-top: calc(14px + env(safe-area-inset-top,0px));
   background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
-  pointer-events: all;
+  pointer-events: auto !important;
+  position: relative; z-index: 20;
 }
 .ar-title { font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
 .ar-mode-badge { background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 20px; text-transform: uppercase; }
@@ -193,23 +194,27 @@ html, body {
 .ar-toolbar {
   padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom,0px));
   background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
-  display: flex; flex-direction: column; gap: 14px; pointer-events: all;
+  display: flex; flex-direction: column; gap: 14px;
+  pointer-events: auto !important;
+  position: relative; z-index: 20;
 }
 
-.toolbar-row { display: flex; align-items: center; gap: 10px; }
+.toolbar-row { display: flex; align-items: center; gap: 10px; pointer-events: auto !important; }
 
-.slider-row { display: flex; align-items: center; gap: 12px; }
+.slider-row { display: flex; align-items: center; gap: 12px; pointer-events: auto !important; }
 .slider-label { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 600; min-width: 28px; }
 
 input[type=range].ar-slider {
   flex: 1; -webkit-appearance: none; appearance: none;
   height: 4px; border-radius: 4px; outline: none; cursor: pointer;
   background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--val,30%), rgba(255,255,255,0.2) var(--val,30%), rgba(255,255,255,0.2) 100%);
+  pointer-events: auto !important;
 }
 input[type=range].ar-slider::-webkit-slider-thumb {
   -webkit-appearance: none; width: 20px; height: 20px;
   border-radius: 50%; background: #fff; cursor: pointer;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  pointer-events: auto !important;
 }
 
 .ar-btn {
@@ -217,8 +222,11 @@ input[type=range].ar-slider::-webkit-slider-thumb {
   color: #fff; border-radius: var(--r-sm);
   padding: 10px 16px; font-size: 13px; font-weight: 600; font-family: inherit;
   cursor: pointer; transition: var(--t); backdrop-filter: blur(8px); white-space: nowrap;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
 }
-.ar-btn:active { background: rgba(255,255,255,0.25); }
+.ar-btn:active { background: rgba(255,255,255,0.25); transform: scale(0.95); }
 .ar-btn.accent { background: var(--accent); border-color: var(--accent); box-shadow: 0 4px 16px rgba(124,58,237,0.5); }
 .ar-btn.accent:active { background: #5B21B6; }
 .ar-btn.danger { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); }
@@ -236,6 +244,10 @@ input[type=range].ar-slider::-webkit-slider-thumb {
   transition: transform .2s ease, box-shadow .3s ease;
   flex-shrink: 0;
   margin: 0 auto;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  user-select: none; -webkit-user-select: none;
+  position: relative; z-index: 25;
 }
 #lock-btn.scanning { animation: pulse-ring 1.5s ease infinite; }
 #lock-btn.locked { background: #5B21B6; box-shadow: 0 0 0 6px rgba(124,58,237,0.3); animation: none; }

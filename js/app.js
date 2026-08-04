@@ -117,7 +117,23 @@ function initPaperScreen() {
     if (paperMode) paperMode.setOpacity(paperSlider.value / 100);
   });
 
-  paperLockBtn.addEventListener('click', function() {
+  function addTapListener(el, handler) {
+    if (!el) return;
+    var lastTime = 0;
+    function trigger(e) {
+      var now = Date.now();
+      if (now - lastTime < 250) return;
+      lastTime = now;
+      if (e) {
+        try { e.stopPropagation(); } catch (err) {}
+      }
+      handler(e);
+    }
+    el.addEventListener('pointerdown', trigger);
+    el.addEventListener('click', trigger);
+  }
+
+  addTapListener(paperLockBtn, function() {
     if (!paperMode) return;
     if (!paperMode.isLocked) {
       paperMode.lock();
@@ -137,22 +153,22 @@ function initPaperScreen() {
     }
   });
 
-  document.getElementById('paper-zoom-in').addEventListener('click', function() {
+  addTapListener(document.getElementById('paper-zoom-in'), function() {
     if (paperMode) paperMode.zoomIn();
   });
 
-  document.getElementById('paper-zoom-out').addEventListener('click', function() {
+  addTapListener(document.getElementById('paper-zoom-out'), function() {
     if (paperMode) paperMode.zoomOut();
   });
 
-  document.getElementById('paper-reset-btn').addEventListener('click', function() {
+  addTapListener(document.getElementById('paper-reset-btn'), function() {
     if (paperMode) {
       paperMode.resetTransform();
       showToast('Position & Zoom reset.', '');
     }
   });
 
-  paperFreezeBtn.addEventListener('click', function() {
+  addTapListener(paperFreezeBtn, function() {
     if (!paperMode) return;
     var frozen = paperMode.toggleFreeze();
     if (frozen) {
