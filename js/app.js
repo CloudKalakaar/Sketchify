@@ -124,9 +124,9 @@ function initPaperScreen() {
       paperLockBtn.classList.remove('scanning');
       paperLockBtn.classList.add('locked');
       paperLockBtn.textContent = '🔒';
-      paperStatus.textContent  = '🔒 Overlay Locked — trace on paper!';
+      paperStatus.textContent  = '🔒 Paper Locked — move phone to test!';
       paperStatus.className    = 'lock-status locked';
-      showToast('Position locked! Dragging disabled while locked.', 'success');
+      showToast('Locked to paper surface! Camera motion auto-tracked.', 'success');
     } else {
       paperMode.unlock();
       paperLockBtn.classList.remove('locked');

@@ -5,9 +5,12 @@
  * - High-performance camera feed rendering
  * - Smooth semi-transparent sketch overlay
  * - Touch gestures: Drag to pan, Pinch to zoom/scale
- * - Lock mode: Freezes overlay positioning so tracing on paper is rock-solid
- * - Quick Zoom (+ / -) & Freeze View (still frame tracing)
- * - 100% universal canvas API (no roundRect, no CORS/getImageData traps)
+ * - Gyro-Assisted AR Paper Lock:
+ *   When Lock is tapped, captures the baseline orientation of the phone.
+ *   As the user tilts/moves the phone over the paper, the overlay counter-shifts
+ *   so the sketch stays anchored to the paper surface!
+ * - Quick Zoom (+ / -) & Freeze View (still frame mode)
+ * - 100% universal canvas API
  */
 
 class PaperMode {
@@ -32,18 +35,34 @@ class PaperMode {
     this.panX  = 0;
     this.panY  = 0;
 
+    // Gyro orientation state
+    this._curBeta   = 0;
+    this._curGamma  = 0;
+    this._curAlpha  = 0;
+    this._baseBeta  = 0;
+    this._baseGamma = 0;
+    this._baseAlpha = 0;
+    this._basePanX  = 0;
+    this._basePanY  = 0;
+
+    this._orientHandler = (e) => {
+      this._curBeta  = e.beta  || 0;
+      this._curGamma = e.gamma || 0;
+      this._curAlpha = e.alpha || 0;
+    };
+
     // Off-screen canvas for freeze-frame camera snapshot
     this._freezeCanvas = document.createElement('canvas');
     this._freezeCtx    = this._freezeCanvas.getContext('2d');
 
     // Touch gesture tracking
-    this._touchStartDist = 0;
+    this._touchStartDist  = 0;
     this._touchStartScale = 1.0;
-    this._lastTouchX = 0;
-    this._lastTouchY = 0;
-    this._isDragging = false;
+    this._lastTouchX      = 0;
+    this._lastTouchY      = 0;
+    this._isDragging      = false;
 
-    this._rafId = null;
+    this._rafId     = null;
     this._scanPhase = 0;
 
     this._bindTouchEvents();
@@ -64,6 +83,7 @@ class PaperMode {
     this._resizeCanvas();
     this._resizeBound = () => this._resizeCanvas();
     window.addEventListener('resize', this._resizeBound);
+    window.addEventListener('deviceorientation', this._orientHandler);
 
     const ok = await this.cam.start();
     if (!ok) return false;
@@ -76,6 +96,7 @@ class PaperMode {
     if (this._rafId) cancelAnimationFrame(this._rafId);
     this._rafId = null;
     this.cam.stop();
+    window.removeEventListener('deviceorientation', this._orientHandler);
     if (this._resizeBound) window.removeEventListener('resize', this._resizeBound);
   }
 
@@ -83,8 +104,19 @@ class PaperMode {
     this.opacity = Math.max(0.05, Math.min(1.0, v));
   }
 
-  lock() {
-    this.isLocked = true;
+  async lock() {
+    // Request permission on iOS if required
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
+    }
+
+    this.isLocked   = true;
+    this._baseBeta  = this._curBeta;
+    this._baseGamma = this._curGamma;
+    this._baseAlpha = this._curAlpha;
+    this._basePanX  = this.panX;
+    this._basePanY  = this.panY;
+
     if (navigator.vibrate) {
       try { navigator.vibrate([30, 20, 60]); } catch (e) {}
     }
@@ -97,7 +129,6 @@ class PaperMode {
 
   toggleFreeze() {
     if (!this.isFrozen) {
-      // Capture current video frame to freeze canvas
       if (this.video.videoWidth && this.video.videoHeight) {
         this._freezeCanvas.width  = this.canvas.width;
         this._freezeCanvas.height = this.canvas.height;
@@ -122,6 +153,10 @@ class PaperMode {
     this.scale = 1.0;
     this.panX  = 0;
     this.panY  = 0;
+    this._basePanX = 0;
+    this._basePanY = 0;
+    this._baseBeta  = this._curBeta;
+    this._baseGamma = this._curGamma;
   }
 
   /* ═══════════════════════════════════════════════════
@@ -132,8 +167,6 @@ class PaperMode {
     const el = this.canvas;
 
     el.addEventListener('touchstart', (e) => {
-      if (this.isLocked) return; // Ignore gesture adjustments when locked
-
       if (e.touches.length === 1) {
         this._isDragging = true;
         this._lastTouchX = e.touches[0].clientX;
@@ -148,13 +181,17 @@ class PaperMode {
     }, { passive: true });
 
     el.addEventListener('touchmove', (e) => {
-      if (this.isLocked) return;
-
       if (e.touches.length === 1 && this._isDragging) {
         const cx = e.touches[0].clientX;
         const cy = e.touches[0].clientY;
-        this.panX += cx - this._lastTouchX;
-        this.panY += cy - this._lastTouchY;
+        const dx = cx - this._lastTouchX;
+        const dy = cy - this._lastTouchY;
+        this.panX += dx;
+        this.panY += dy;
+        if (this.isLocked) {
+          this._basePanX += dx;
+          this._basePanY += dy;
+        }
         this._lastTouchX = cx;
         this._lastTouchY = cy;
       } else if (e.touches.length === 2 && this._touchStartDist > 0) {
@@ -206,17 +243,41 @@ class PaperMode {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
 
-    // Base fit scale to fit sketch inside screen while preserving aspect ratio
+    // Base fit scale
     const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
     const iw = img.width  * baseFit * this.scale;
     const ih = img.height * baseFit * this.scale;
 
+    let activePanX = this.panX;
+    let activePanY = this.panY;
+
+    // Gyro spatial lock adjustment
+    if (this.isLocked && !this.isFrozen) {
+      let dBeta  = this._curBeta  - this._baseBeta;
+      let dGamma = this._curGamma - this._baseGamma;
+
+      // Handle angle wrap-around (-180 to 180)
+      if (dGamma >  180) dGamma -= 360;
+      if (dGamma < -180) dGamma += 360;
+      if (dBeta  >  180) dBeta  -= 360;
+      if (dBeta  < -180) dBeta  += 360;
+
+      // Sensitivity (pixels shift per degree of tilt)
+      const SENSITIVITY = Math.min(W, H) * 0.035;
+
+      // Counter-shift pan offsets so sketch remains pinned over paper surface
+      activePanX = this._basePanX - (dGamma * SENSITIVITY);
+      activePanY = this._basePanY - (dBeta  * SENSITIVITY);
+      this.panX = activePanX;
+      this.panY = activePanY;
+    }
+
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
-    // Position at canvas center + user pan offsets
-    const cx = W / 2 + this.panX;
-    const cy = H / 2 + this.panY;
+    // Position at canvas center + active pan offsets
+    const cx = W / 2 + activePanX;
+    const cy = H / 2 + activePanY;
 
     ctx.translate(cx, cy);
     ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
@@ -260,7 +321,7 @@ class PaperMode {
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.65)';
       ctx.beginPath();
-      var rx = W / 2 - 65, ry = margin - 6, rw = 130, rh = 30, rad = 15;
+      var rx = W / 2 - 70, ry = margin - 6, rw = 140, rh = 30, rad = 15;
       ctx.moveTo(rx + rad, ry);
       ctx.lineTo(rx + rw - rad, ry);
       ctx.arcTo(rx + rw, ry, rx + rw, ry + rad, rad);
@@ -278,7 +339,7 @@ class PaperMode {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       const zoomTxt = this.scale !== 1.0 ? ' · ' + Math.round(this.scale * 100) + '%' : '';
-      ctx.fillText('🔒 LOCKED' + zoomTxt, W / 2, margin + 9);
+      ctx.fillText('🔒 PAPER LOCKED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }
