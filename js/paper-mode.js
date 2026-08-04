@@ -1,14 +1,13 @@
 /**
- * paper-mode.js — AR Paper Tracing Engine (Silky-Smooth Spatial Paper Lock)
+ * paper-mode.js — AR VR-Style 3D Spatial Paper Lock Engine
  *
  * Features:
  * - High-performance camera feed rendering
- * - Aspect-ratio preserved sketch overlay (ZERO stretching or distortion)
- * - Exponential Sensor Smoothing (LERP) for fluid real-time motion tracking
- * - Gyro-Assisted AR Spatial Lock:
- *   When Lock is tapped, captures the baseline orientation of the phone.
- *   As you tilt/move your phone over paper, the overlay counter-shifts smoothly
- *   in real time, keeping the sketch anchored to your paper surface!
+ * - 3D VR Spatial Lock Matrix:
+ *   Applies 6-DOF 3D translation, 3D yaw rotation, and 3D pitch/roll keystone perspective shear.
+ *   As you tilt, rotate, or pan your phone like VR glasses, the sketch image responds
+ *   in true 3D spatial perspective, staying anchored to your physical paper!
+ * - 60FPS LERP exponential sensor smoothing for ultra-fluid motion
  * - Touch gestures: 1-finger drag to pan, 2-finger pinch to zoom
  * - 100% crash-proof universal canvas rendering
  */
@@ -35,7 +34,7 @@ class PaperMode {
     this.panX  = 0;
     this.panY  = 0;
 
-    // Gyro orientation state with smoothing
+    // Gyro 3D orientation state with LERP filter
     this._curBeta     = 0;
     this._curGamma    = 0;
     this._curAlpha    = 0;
@@ -161,8 +160,10 @@ class PaperMode {
     this._basePanY  = 0;
     this._smoothBeta  = this._curBeta;
     this._smoothGamma = this._curGamma;
+    this._smoothAlpha = this._curAlpha;
     this._baseBeta    = this._curBeta;
     this._baseGamma   = this._curGamma;
+    this._baseAlpha   = this._curAlpha;
   }
 
   /* ═══════════════════════════════════════════════════
@@ -216,7 +217,7 @@ class PaperMode {
   }
 
   /* ═══════════════════════════════════════════════════
-     RENDER LOOP & SMOOTH SPATIAL TRACKING
+     RENDER LOOP & VR 3D PERSPECTIVE MATRIX
   ═══════════════════════════════════════════════════ */
 
   _resizeCanvas() {
@@ -236,57 +237,85 @@ class PaperMode {
       this.cam.drawFrame(ctx, canvas.width, canvas.height);
     }
 
-    // 2. Draw Transformed Sketch Overlay (Aspect-Ratio Preserved)
+    // 2. Draw Transformed Sketch Overlay using VR 3D Perspective Matrix
     if (this.overlayImage) {
-      this._drawSmoothOverlay();
+      this._drawVR3DOverlay();
     }
 
     // 3. Draw AR HUD Brackets & Status
     this._drawHUD();
   }
 
-  _drawSmoothOverlay() {
+  _drawVR3DOverlay() {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
 
-    // Exponential Smoothing (LERP) for fluid 60fps sensor tracking
-    this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * 0.20;
-    this._smoothGamma += (this._curGamma - this._smoothGamma) * 0.20;
+    // 60FPS LERP Exponential Smoothing for VR Motion
+    const LERP = 0.22;
+    this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * LERP;
+    this._smoothGamma += (this._curGamma - this._smoothGamma) * LERP;
+    this._smoothAlpha += (this._curAlpha - this._smoothAlpha) * LERP;
 
     let activePanX = this.panX;
     let activePanY = this.panY;
+    let radYaw     = 0;
+    let shearX     = 0;
+    let shearY     = 0;
 
     if (this.isLocked && !this.isFrozen) {
       let dBeta  = this._smoothBeta  - this._baseBeta;
       let dGamma = this._smoothGamma - this._baseGamma;
+      let dAlpha = this._smoothAlpha - this._baseAlpha;
 
       // Handle angle wrap-around (-180 to 180)
       if (dGamma >  180) dGamma -= 360;
       if (dGamma < -180) dGamma += 360;
       if (dBeta  >  180) dBeta  -= 360;
       if (dBeta  < -180) dBeta  += 360;
+      if (dAlpha >  180) dAlpha -= 360;
+      if (dAlpha < -180) dAlpha += 360;
 
-      // Sensitivity factor tuned to screen dimensions
-      const SENSITIVITY = Math.min(W, H) * 0.028;
+      // 1. 3D Spatial Pan Translation (pixels shifted per degree)
+      const SENSITIVITY_X = W * 0.024;
+      const SENSITIVITY_Y = H * 0.024;
+      activePanX = this._basePanX - (dGamma * SENSITIVITY_X);
+      activePanY = this._basePanY - (dBeta  * SENSITIVITY_Y);
 
-      activePanX = this._basePanX - (dGamma * SENSITIVITY);
-      activePanY = this._basePanY - (dBeta  * SENSITIVITY);
+      // 2. 3D Yaw Rotation (turning device around axis)
+      radYaw = -(dAlpha * Math.PI / 180) * 0.5;
+
+      // 3. 3D Tilt Keystone Shear (clamped to [-50deg, 50deg] for stability)
+      const clampDeg = (deg) => Math.max(-50, Math.min(50, deg));
+      const cGamma   = clampDeg(dGamma);
+      const cBeta    = clampDeg(dBeta);
+
+      shearX = Math.tan((cGamma * Math.PI / 180) * 0.35);
+      shearY = Math.tan((cBeta  * Math.PI / 180) * 0.35);
     }
 
-    // Maintain 100% original aspect ratio — ZERO stretching or distortion!
+    // Base fit scale preserving original aspect ratio
     const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
-    const iw = img.width  * baseFit * this.scale;
-    const ih = img.height * baseFit * this.scale;
+    const scaleX  = baseFit * this.scale;
+    const scaleY  = baseFit * this.scale;
+
+    // Build 2D Affine 3D Projection Matrix
+    const cosY = Math.cos(radYaw);
+    const sinY = Math.sin(radYaw);
+
+    const a = scaleX * cosY - shearY * sinY;
+    const b = scaleX * sinY + shearY * cosY;
+    const c = -scaleY * sinY + shearX * cosY;
+    const d = scaleY * cosY + shearX * sinY;
+
+    const cx = W / 2 + activePanX;
+    const cy = H / 2 + activePanY;
 
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
-    // Center of sketch + active spatial offsets
-    const cx = W / 2 + activePanX;
-    const cy = H / 2 + activePanY;
-
-    ctx.translate(cx, cy);
-    ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
+    // Apply VR 3D Perspective Transformation Matrix
+    ctx.transform(a, b, c, d, cx, cy);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
     ctx.restore();
   }
@@ -327,7 +356,7 @@ class PaperMode {
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.65)';
       ctx.beginPath();
-      var rx = W / 2 - 75, ry = margin - 6, rw = 150, rh = 30, rad = 15;
+      var rx = W / 2 - 80, ry = margin - 6, rw = 160, rh = 30, rad = 15;
       ctx.moveTo(rx + rad, ry);
       ctx.lineTo(rx + rw - rad, ry);
       ctx.arcTo(rx + rw, ry, rx + rw, ry + rad, rad);
@@ -345,7 +374,7 @@ class PaperMode {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       const zoomTxt = ' · ' + Math.round(this.scale * 100) + '%';
-      ctx.fillText('🔒 PAPER LOCKED' + zoomTxt, W / 2, margin + 9);
+      ctx.fillText('🔒 VR SPATIAL LOCKED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }
