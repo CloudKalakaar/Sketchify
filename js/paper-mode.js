@@ -1,16 +1,16 @@
 /**
- * paper-mode.js — AR Paper Tracing Engine (Spatial Paper Lock)
+ * paper-mode.js — AR Paper Tracing Engine (Silky-Smooth Spatial Paper Lock)
  *
  * Features:
  * - High-performance camera feed rendering
- * - Smooth semi-transparent sketch overlay
- * - Unlocked mode: Align, drag, and scale sketch over paper
- * - Locked mode (Spatial Paper Lock):
- *   When Lock is tapped, the sketch locks to the paper in physical space.
- *   As you move your phone closer/farther or pan sideways across the paper,
- *   the canvas crops into the corresponding sub-region of the sketch image.
- *   Result: It acts EXACTLY like the image was already printed/traced on the paper!
- * - 100% universal crash-proof canvas APIs
+ * - Aspect-ratio preserved sketch overlay (ZERO stretching or distortion)
+ * - Exponential Sensor Smoothing (LERP) for fluid real-time motion tracking
+ * - Gyro-Assisted AR Spatial Lock:
+ *   When Lock is tapped, captures the baseline orientation of the phone.
+ *   As you tilt/move your phone over paper, the overlay counter-shifts smoothly
+ *   in real time, keeping the sketch anchored to your paper surface!
+ * - Touch gestures: 1-finger drag to pan, 2-finger pinch to zoom
+ * - 100% crash-proof universal canvas rendering
  */
 
 class PaperMode {
@@ -35,16 +35,19 @@ class PaperMode {
     this.panX  = 0;
     this.panY  = 0;
 
-    // Gyro orientation state
-    this._curBeta   = 0;
-    this._curGamma  = 0;
-    this._curAlpha  = 0;
+    // Gyro orientation state with smoothing
+    this._curBeta     = 0;
+    this._curGamma    = 0;
+    this._curAlpha    = 0;
+    this._smoothBeta  = 0;
+    this._smoothGamma = 0;
+    this._smoothAlpha = 0;
+
     this._baseBeta  = 0;
     this._baseGamma = 0;
     this._baseAlpha = 0;
     this._basePanX  = 0;
     this._basePanY  = 0;
-    this._baseScale = 1.0;
 
     this._orientHandler = (e) => {
       this._curBeta  = e.beta  || 0;
@@ -104,13 +107,15 @@ class PaperMode {
   }
 
   lock() {
-    this.isLocked   = true;
-    this._baseBeta  = this._curBeta;
-    this._baseGamma = this._curGamma;
-    this._baseAlpha = this._curAlpha;
-    this._basePanX  = this.panX;
-    this._basePanY  = this.panY;
-    this._baseScale = Math.max(1.0, this.scale);
+    this.isLocked     = true;
+    this._smoothBeta  = this._curBeta;
+    this._smoothGamma = this._curGamma;
+    this._smoothAlpha = this._curAlpha;
+    this._baseBeta    = this._curBeta;
+    this._baseGamma   = this._curGamma;
+    this._baseAlpha   = this._curAlpha;
+    this._basePanX    = this.panX;
+    this._basePanY    = this.panY;
 
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
       try { DeviceOrientationEvent.requestPermission(); } catch (e) {}
@@ -154,9 +159,10 @@ class PaperMode {
     this.panY  = 0;
     this._basePanX  = 0;
     this._basePanY  = 0;
-    this._baseScale = 1.0;
-    this._baseBeta  = this._curBeta;
-    this._baseGamma = this._curGamma;
+    this._smoothBeta  = this._curBeta;
+    this._smoothGamma = this._curGamma;
+    this._baseBeta    = this._curBeta;
+    this._baseGamma   = this._curGamma;
   }
 
   /* ═══════════════════════════════════════════════════
@@ -210,7 +216,7 @@ class PaperMode {
   }
 
   /* ═══════════════════════════════════════════════════
-     RENDER LOOP
+     RENDER LOOP & SMOOTH SPATIAL TRACKING
   ═══════════════════════════════════════════════════ */
 
   _resizeCanvas() {
@@ -230,24 +236,44 @@ class PaperMode {
       this.cam.drawFrame(ctx, canvas.width, canvas.height);
     }
 
-    // 2. Draw Transformed Sketch Overlay
+    // 2. Draw Transformed Sketch Overlay (Aspect-Ratio Preserved)
     if (this.overlayImage) {
-      if (this.isLocked) {
-        this._drawTrackedCropOverlay();
-      } else {
-        this._drawStandardOverlay();
-      }
+      this._drawSmoothOverlay();
     }
 
     // 3. Draw AR HUD Brackets & Status
     this._drawHUD();
   }
 
-  /* Standard Unlocked Mode: Position full image over screen */
-  _drawStandardOverlay() {
+  _drawSmoothOverlay() {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
 
+    // Exponential Smoothing (LERP) for fluid 60fps sensor tracking
+    this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * 0.20;
+    this._smoothGamma += (this._curGamma - this._smoothGamma) * 0.20;
+
+    let activePanX = this.panX;
+    let activePanY = this.panY;
+
+    if (this.isLocked && !this.isFrozen) {
+      let dBeta  = this._smoothBeta  - this._baseBeta;
+      let dGamma = this._smoothGamma - this._baseGamma;
+
+      // Handle angle wrap-around (-180 to 180)
+      if (dGamma >  180) dGamma -= 360;
+      if (dGamma < -180) dGamma += 360;
+      if (dBeta  >  180) dBeta  -= 360;
+      if (dBeta  < -180) dBeta  += 360;
+
+      // Sensitivity factor tuned to screen dimensions
+      const SENSITIVITY = Math.min(W, H) * 0.028;
+
+      activePanX = this._basePanX - (dGamma * SENSITIVITY);
+      activePanY = this._basePanY - (dBeta  * SENSITIVITY);
+    }
+
+    // Maintain 100% original aspect ratio — ZERO stretching or distortion!
     const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
     const iw = img.width  * baseFit * this.scale;
     const ih = img.height * baseFit * this.scale;
@@ -255,75 +281,14 @@ class PaperMode {
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
-    const cx = W / 2 + this.panX;
-    const cy = H / 2 + this.panY;
+    // Center of sketch + active spatial offsets
+    const cx = W / 2 + activePanX;
+    const cy = H / 2 + activePanY;
 
     ctx.translate(cx, cy);
     ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
 
     ctx.restore();
-  }
-
-  /* Spatial Paper Lock Mode: Crop & Spatial Pan Mapping */
-  _drawTrackedCropOverlay() {
-    const { ctx, canvas, overlayImage: img } = this;
-    const W = canvas.width, H = canvas.height;
-
-    let activeScale = Math.max(0.2, this.scale);
-    let activePanX  = this.panX;
-    let activePanY  = this.panY;
-
-    // Apply Gyro counter-shift if active
-    if (!this.isFrozen) {
-      let dBeta  = this._curBeta  - this._baseBeta;
-      let dGamma = this._curGamma - this._baseGamma;
-
-      if (dGamma >  180) dGamma -= 360;
-      if (dGamma < -180) dGamma += 360;
-      if (dBeta  >  180) dBeta  -= 360;
-      if (dBeta  < -180) dBeta  += 360;
-
-      const SENSITIVITY = Math.min(W, H) * 0.04;
-      activePanX = this._basePanX - (dGamma * SENSITIVITY);
-      activePanY = this._basePanY - (dBeta  * SENSITIVITY);
-    }
-
-    const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
-
-    // If scale > 1.0 (zoomed in), crop into image corresponding to paper position
-    if (activeScale >= 1.0) {
-      const srcW = img.width / activeScale;
-      const srcH = img.height / activeScale;
-
-      const cropCenterX = (img.width / 2) - (activePanX / (baseFit * activeScale));
-      const cropCenterY = (img.height / 2) - (activePanY / (baseFit * activeScale));
-
-      const srcX = cropCenterX - (srcW / 2);
-      const srcY = cropCenterY - (srcH / 2);
-
-      // Safe bounds clamping
-      const sX = Math.max(0, Math.min(img.width - 1, srcX));
-      const sY = Math.max(0, Math.min(img.height - 1, srcY));
-      const sW = Math.max(1, Math.min(img.width - sX, srcW));
-      const sH = Math.max(1, Math.min(img.height - sY, srcH));
-
-      ctx.save();
-      ctx.globalAlpha = this.opacity;
-      ctx.drawImage(img, sX, sY, sW, sH, 0, 0, W, H);
-      ctx.restore();
-    } else {
-      // Scale < 1.0: draw scaled down image with spatial pan
-      const iw = img.width  * baseFit * activeScale;
-      const ih = img.height * baseFit * activeScale;
-
-      ctx.save();
-      ctx.globalAlpha = this.opacity;
-      const cx = W / 2 + activePanX;
-      const cy = H / 2 + activePanY;
-      ctx.translate(cx, cy);
-      ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
-      ctx.restore();
-    }
   }
 
   _drawHUD() {
@@ -380,7 +345,7 @@ class PaperMode {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       const zoomTxt = ' · ' + Math.round(this.scale * 100) + '%';
-      ctx.fillText('🔒 TRACED ON PAPER' + zoomTxt, W / 2, margin + 9);
+      ctx.fillText('🔒 PAPER LOCKED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }
