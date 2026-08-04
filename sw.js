@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sketchify-v7';
+const CACHE_NAME = 'sketchify-v8';
 
 const STATIC_ASSETS = [
   '/Sketchify/',

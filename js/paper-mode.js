@@ -85,9 +85,7 @@ class PaperMode {
     window.addEventListener('resize', this._resizeBound);
     window.addEventListener('deviceorientation', this._orientHandler);
 
-    const ok = await this.cam.start();
-    if (!ok) return false;
-
+    await this.cam.start();
     this._loop();
     return true;
   }
@@ -104,18 +102,17 @@ class PaperMode {
     this.opacity = Math.max(0.05, Math.min(1.0, v));
   }
 
-  async lock() {
-    // Request permission on iOS if required
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      try { await DeviceOrientationEvent.requestPermission(); } catch (e) {}
-    }
-
+  lock() {
     this.isLocked   = true;
     this._baseBeta  = this._curBeta;
     this._baseGamma = this._curGamma;
     this._baseAlpha = this._curAlpha;
     this._basePanX  = this.panX;
     this._basePanY  = this.panY;
+
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try { DeviceOrientationEvent.requestPermission(); } catch (e) {}
+    }
 
     if (navigator.vibrate) {
       try { navigator.vibrate([30, 20, 60]); } catch (e) {}
@@ -129,12 +126,12 @@ class PaperMode {
 
   toggleFreeze() {
     if (!this.isFrozen) {
-      if (this.video.videoWidth && this.video.videoHeight) {
+      if (this.video && this.video.videoWidth && this.video.videoHeight) {
         this._freezeCanvas.width  = this.canvas.width;
         this._freezeCanvas.height = this.canvas.height;
         this.cam.drawFrame(this._freezeCtx, this.canvas.width, this.canvas.height);
-        this.isFrozen = true;
       }
+      this.isFrozen = true;
     } else {
       this.isFrozen = false;
     }
