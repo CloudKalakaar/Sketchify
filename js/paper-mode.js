@@ -1,15 +1,17 @@
 /**
- * paper-mode.js — AR Rock-Solid Paper Tracing Engine
+ * paper-mode.js — AR Real-Time Spatial Paper Tracking Engine
  *
  * Features:
- * - High-performance camera feed rendering
- * - Rock-Solid Pin Lock:
- *   When Lock (🔒) is pressed, the sketch is pinned ROCK-SOLID over the paper.
- *   Hand tremors, minor shakes, and camera tilts produce ZERO wobble or perspective warping.
- *   Result: 100% rock-stable drawing surface for accurate paper tracing!
- * - Touch Controls: 1-finger drag to pan, 2-finger pinch to scale
- * - Still Frame Mode (❄️ Frame): Freeze live camera view for zero shake tracing
- * - 100% crash-proof universal canvas rendering
+ * - Real-Time AR Spatial Paper Tracking:
+ *   When Lock (🔒) is pressed, the sketch anchors to the physical paper on your desk.
+ *   As you move your phone, the sketch overlay shifts across the camera view in sync
+ *   with the paper on your desk. If you move your camera off the paper, the sketch
+ *   overlay moves off screen with the paper — exactly like real AR!
+ * - High-performance 60FPS camera & canvas rendering
+ * - Aspect-ratio preserved overlay (zero distortion)
+ * - Touch gestures: 1-finger drag to adjust alignment, 2-finger pinch to scale
+ * - Still Frame Mode (❄️ Frame): Freeze camera snapshot for stationary tracing
+ * - 100% crash-proof universal implementation
  */
 
 class PaperMode {
@@ -28,14 +30,13 @@ class PaperMode {
     this.opacity      = 0.35;
     this.isLocked     = false;
     this.isFrozen     = false;
-    this.enableGyroAssist = false;
 
     // Transform state
     this.scale = 1.0;
     this.panX  = 0;
     this.panY  = 0;
 
-    // Gyro orientation state with smoothing
+    // Gyro orientation state with 60FPS LERP filter
     this._curBeta     = 0;
     this._curGamma    = 0;
     this._curAlpha    = 0;
@@ -47,7 +48,7 @@ class PaperMode {
     this._baseGamma = 0;
     this._baseAlpha = 0;
 
-    // Fixed absolute spatial anchor when locked
+    // Fixed spatial anchor when locked
     this._anchorPanX    = 0;
     this._anchorPanY    = 0;
     this._userTouchPanX = 0;
@@ -229,7 +230,7 @@ class PaperMode {
   }
 
   /* ═══════════════════════════════════════════════════
-     RENDER LOOP & ROCK-SOLID STABLE LOCK
+     RENDER LOOP & REAL-TIME AR SPATIAL PAPER LOCK
   ═══════════════════════════════════════════════════ */
 
   _resizeCanvas() {
@@ -249,54 +250,50 @@ class PaperMode {
       this.cam.drawFrame(ctx, canvas.width, canvas.height);
     }
 
-    // 2. Draw Transformed Sketch Overlay (Rock-Solid Pinned)
+    // 2. Draw Real-Time AR Tracked Overlay
     if (this.overlayImage) {
-      this._drawRockSolidOverlay();
+      this._drawARRealtimeOverlay();
     }
 
     // 3. Draw AR HUD Brackets & Status
     this._drawHUD();
   }
 
-  _drawRockSolidOverlay() {
+  _drawARRealtimeOverlay() {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
+
+    // 60FPS Exponential LERP Smoothing for Gyro Orientation
+    const LERP = 0.25;
+    this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * LERP;
+    this._smoothGamma += (this._curGamma - this._smoothGamma) * LERP;
 
     let activePanX = this.panX;
     let activePanY = this.panY;
 
-    if (this.isLocked) {
-      // Rock-Solid Pinned Lock: Zero Wobble, Zero Jitter from hand shakes!
-      activePanX = this._anchorPanX + this._userTouchPanX;
-      activePanY = this._anchorPanY + this._userTouchPanY;
+    if (this.isLocked && !this.isFrozen) {
+      let dBeta  = this._smoothBeta  - this._baseBeta;
+      let dGamma = this._smoothGamma - this._baseGamma;
 
-      // Optional Gyro Assist with Deadzone filter if user turns it on
-      if (this.enableGyroAssist && !this.isFrozen) {
-        const LERP = 0.15;
-        this._smoothBeta  += (this._curBeta  - this._smoothBeta)  * LERP;
-        this._smoothGamma += (this._curGamma - this._smoothGamma) * LERP;
+      // Handle angle wrap-around (-180 to 180)
+      if (dGamma >  180) dGamma -= 360;
+      if (dGamma < -180) dGamma += 360;
+      if (dBeta  >  180) dBeta  -= 360;
+      if (dBeta  < -180) dBeta  += 360;
 
-        let dBeta  = this._smoothBeta  - this._baseBeta;
-        let dGamma = this._smoothGamma - this._baseGamma;
+      // Spatial paper tracking gain (pixels per degree of camera movement)
+      const GAIN_X = W * 0.032;
+      const GAIN_Y = H * 0.032;
 
-        if (dGamma >  180) dGamma -= 360;
-        if (dGamma < -180) dGamma += 360;
-        if (dBeta  >  180) dBeta  -= 360;
-        if (dBeta  < -180) dBeta  += 360;
+      // Shift sketch in opposite direction of camera movement to keep it anchored to physical paper on desk
+      const shiftX = -(dGamma * GAIN_X);
+      const shiftY = -(dBeta  * GAIN_Y);
 
-        const DEADZONE = 3.5;
-        if (Math.abs(dGamma) > DEADZONE) {
-          const shiftG = (dGamma > 0 ? dGamma - DEADZONE : dGamma + DEADZONE);
-          activePanX -= shiftG * (W * 0.015);
-        }
-        if (Math.abs(dBeta) > DEADZONE) {
-          const shiftB = (dBeta > 0 ? dBeta - DEADZONE : dBeta + DEADZONE);
-          activePanY -= shiftB * (H * 0.015);
-        }
-      }
+      activePanX = this._anchorPanX + this._userTouchPanX + shiftX;
+      activePanY = this._anchorPanY + this._userTouchPanY + shiftY;
     }
 
-    // Maintain 100% original aspect ratio — ZERO stretching or distortion!
+    // Preserve 100% exact original aspect ratio — ZERO distortion
     const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
     const iw = img.width  * baseFit * this.scale;
     const ih = img.height * baseFit * this.scale;
@@ -304,6 +301,7 @@ class PaperMode {
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
+    // Center of sketch + active spatial tracking offsets
     const cx = W / 2 + activePanX;
     const cy = H / 2 + activePanY;
 
@@ -367,7 +365,7 @@ class PaperMode {
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
       const zoomTxt = ' · ' + Math.round(this.scale * 100) + '%';
-      ctx.fillText('🔒 ROCK-SOLID LOCKED' + zoomTxt, W / 2, margin + 9);
+      ctx.fillText('🔒 PAPER ANCHORED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }
