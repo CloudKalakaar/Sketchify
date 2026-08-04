@@ -119,17 +119,16 @@ function initPaperScreen() {
   paperLockBtn.addEventListener('click', function() {
     if (!paperMode) return;
     if (!paperMode.isLocked) {
-      paperMode.lock().then(function(locked) {
-        if (locked) {
-          paperLockBtn.classList.remove('scanning');
-          paperLockBtn.classList.add('locked');
-          paperLockBtn.textContent = '🔒';
-          paperStatus.textContent  = 'Locked — trace away!';
-          paperStatus.className    = 'lock-status locked';
-        } else {
-          showToast('Motion permission denied. Lock unavailable.', 'error');
-        }
-      });
+      var locked = paperMode.lock();
+      if (locked) {
+        paperLockBtn.classList.remove('scanning');
+        paperLockBtn.classList.add('locked');
+        paperLockBtn.textContent = '🔒';
+        paperStatus.textContent  = 'Locked — move camera to track!';
+        paperStatus.className    = 'lock-status locked';
+      } else {
+        showToast('Camera not ready yet — wait a moment and try again.', 'error');
+      }
     } else {
       paperMode.unlock();
       paperLockBtn.classList.remove('locked');
@@ -154,7 +153,7 @@ function resetPaperUI() {
   if (!paperLockBtn) return;
   paperLockBtn.classList.remove('scanning', 'locked');
   paperLockBtn.textContent = '🎯';
-  paperStatus.textContent  = 'Point at your paper, then tap Lock';
+  paperStatus.textContent  = 'Hold steady over paper, then tap Lock';
   paperStatus.className    = 'lock-status';
   paperSlider.value        = 30;
   setSliderFill(paperSlider);
