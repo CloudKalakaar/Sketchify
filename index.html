@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Sketchify – AR Drawing</title>
+  <meta name="description" content="Trace any image on paper or wall using your phone camera. AR-assisted drawing for artists of all levels." />
+  <meta name="theme-color" content="#7C3AED" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sketchify" />
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     HOME SCREEN
+══════════════════════════════════════ -->
+<section class="screen active" id="screen-home">
+  <div class="home-topbar">
+    <button class="icon-btn" id="settings-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="home-content">
+    <img src="assets/logo.png" class="home-logo" alt="Sketchify logo" />
+    <h1 class="home-wordmark">Sketchify</h1>
+    <p class="home-tag">Trace anything. Anywhere.</p>
+
+    <button class="btn-primary" id="start-btn">✏️&nbsp; Start Tracing</button>
+
+    <div class="home-pills">
+      <div class="pill">
+        <span class="pill-icon">📄</span>
+        <span class="pill-label">Paper</span>
+      </div>
+      <div class="pill">
+        <span class="pill-icon">🧱</span>
+        <span class="pill-label">Wall</span>
+      </div>
+      <div class="pill">
+        <span class="pill-icon">🔒</span>
+        <span class="pill-label">AR Lock</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     IMAGE PICKER SCREEN
+══════════════════════════════════════ -->
+<section class="screen" id="screen-picker">
+  <div class="nav-bar">
+    <button class="icon-btn" id="picker-back" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 5l-7 7 7 7"/>
+      </svg>
+    </button>
+    <h2>Choose Image</h2>
+  </div>
+
+  <div class="picker-body">
+    <div class="drop-zone" id="drop-zone" role="button" aria-label="Select image to trace">
+      <span class="dz-icon">🖼️</span>
+      <span class="dz-hint">Tap to select image</span>
+      <span class="dz-sub">JPG, PNG, WebP supported</span>
+      <input type="file" id="file-input" accept="image/*" aria-label="Image file input" />
+      <img id="preview-img" alt="Selected image preview" />
+      <button class="change-btn" id="change-img-btn" type="button">Change</button>
+    </div>
+
+    <p class="section-title">Select Mode</p>
+
+    <div class="mode-grid">
+      <button class="mode-card locked" id="mode-paper-btn" aria-label="Paper mode">
+        <span class="mc-badge">Gyro Lock</span>
+        <span class="mc-icon">📄</span>
+        <span class="mc-title">Paper</span>
+        <span class="mc-desc">Lock image to paper surface. Trace while looking through camera.</span>
+      </button>
+
+      <button class="mode-card locked" id="mode-wall-btn" aria-label="Wall mode">
+        <span class="mc-badge">Grid</span>
+        <span class="mc-icon">🧱</span>
+        <span class="mc-title">Wall</span>
+        <span class="mc-desc">Divide image into grid sections and trace wall segment by segment.</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     PAPER AR SCREEN
+══════════════════════════════════════ -->
+<section class="screen" id="screen-paper">
+  <canvas id="ar-canvas-paper"></canvas>
+
+  <div class="ar-hud">
+    <!-- Top bar -->
+    <div class="ar-topbar">
+      <button class="icon-btn" id="paper-back" aria-label="Back" style="background:rgba(0,0,0,0.5);border-color:rgba(255,255,255,0.2);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5M12 5l-7 7 7 7"/>
+        </svg>
+      </button>
+      <div class="ar-title">
+        Sketchify
+        <span class="ar-mode-badge">Paper</span>
+      </div>
+      <button class="ar-btn" id="paper-done-btn">Done</button>
+    </div>
+
+    <!-- Bottom toolbar -->
+    <div class="ar-toolbar">
+      <!-- Opacity -->
+      <div class="slider-row">
+        <span class="slider-label">👁️</span>
+        <input type="range" class="ar-slider" id="paper-opacity" min="5" max="80" value="30" aria-label="Overlay opacity" />
+        <span class="slider-label" style="min-width:32px;text-align:right;font-size:11px;" id="paper-op-val">30%</span>
+      </div>
+
+      <!-- Lock button row -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+        <button id="lock-btn" class="scanning" aria-label="Lock overlay to paper">🎯</button>
+        <p class="lock-status" id="lock-status">Point at your paper, then tap Lock</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     WALL AR SCREEN
+══════════════════════════════════════ -->
+<section class="screen" id="screen-wall">
+  <canvas id="ar-canvas-wall"></canvas>
+
+  <div class="ar-hud">
+    <!-- Top bar -->
+    <div class="ar-topbar">
+      <button class="icon-btn" id="wall-back" aria-label="Back" style="background:rgba(0,0,0,0.5);border-color:rgba(255,255,255,0.2);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5M12 5l-7 7 7 7"/>
+        </svg>
+      </button>
+      <div class="ar-title">
+        Sketchify
+        <span class="ar-mode-badge">Wall</span>
+      </div>
+      <button class="ar-btn" id="wall-finish-btn">Done</button>
+    </div>
+
+    <!-- Bottom toolbar -->
+    <div class="ar-toolbar">
+      <!-- Grid size -->
+      <div class="grid-size-row">
+        <span class="grid-size-label">Grid:</span>
+        <div class="grid-size-btns">
+          <button class="gs-btn active" data-size="3" aria-label="3x3 grid">3×3</button>
+          <button class="gs-btn" data-size="4" aria-label="4x4 grid">4×4</button>
+          <button class="gs-btn" data-size="5" aria-label="5x5 grid">5×5</button>
+        </div>
+      </div>
+
+      <!-- Opacity -->
+      <div class="slider-row">
+        <span class="slider-label">👁️</span>
+        <input type="range" class="ar-slider" id="wall-opacity" min="5" max="80" value="28" aria-label="Overlay opacity" />
+      </div>
+
+      <!-- Cell nav + progress -->
+      <div class="toolbar-row" style="gap:10px;">
+        <button class="ar-btn" id="wall-prev-btn" aria-label="Previous cell">◀</button>
+        <div style="flex:1;display:flex;flex-direction:column;gap:6px;align-items:center;">
+          <span class="cell-display" id="cell-display">Cell 1 / 9</span>
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+        </div>
+        <button class="ar-btn" id="wall-next-btn" aria-label="Next cell">▶</button>
+        <button class="ar-btn success" id="wall-done-btn" aria-label="Mark cell done">✓ Done</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     SETTINGS SCREEN
+══════════════════════════════════════ -->
+<section class="screen" id="screen-settings">
+  <div class="nav-bar">
+    <button class="icon-btn" id="settings-back" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 5l-7 7 7 7"/>
+      </svg>
+    </button>
+    <h2>Settings</h2>
+  </div>
+
+  <div class="settings-body">
+    <div class="settings-section">
+      <p class="settings-section-title">App</p>
+      <div class="settings-card">
+        <div class="settings-row" id="clear-cache-btn" role="button" tabindex="0" aria-label="Clear app cache">
+          <div class="settings-row-left">
+            <span class="settings-row-title">🗑️ Clear Cache</span>
+            <span class="settings-row-sub">Force fetch latest version on next load</span>
+          </div>
+          <span class="settings-row-right">›</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <p class="settings-section-title">About</p>
+      <div class="settings-card">
+        <div class="settings-row" style="cursor:default;">
+          <div class="settings-row-left">
+            <span class="settings-row-title">📄 Paper Mode</span>
+            <span class="settings-row-sub">Gyro-locked overlay — trace on any flat surface</span>
+          </div>
+        </div>
+        <div class="settings-row" style="cursor:default;">
+          <div class="settings-row-left">
+            <span class="settings-row-title">🧱 Wall Mode</span>
+            <span class="settings-row-sub">Grid-based tracing — scale any image to a wall</span>
+          </div>
+        </div>
+        <div class="settings-row" style="cursor:default;">
+          <div class="settings-row-left">
+            <span class="settings-row-title">📱 Add to Home Screen</span>
+            <span class="settings-row-sub">Install via browser menu for offline use</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="app-version">Sketchify v1.0.0 · cloudkalakaar.github.io/Sketchify</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════
+     GLOBAL UI OVERLAYS
+══════════════════════════════════════ -->
+
+<!-- Toast container -->
+<div id="toast-container" role="status" aria-live="polite"></div>
+
+<!-- Update banner -->
+<div id="update-toast" role="alert">
+  <p>✨ Update available!</p>
+  <button id="update-reload-btn">Reload</button>
+</div>
+
+<!-- Scripts loaded in dependency order (no ES modules — works on file:// and GitHub Pages) -->
+<script src="js/sw-register.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/paper-mode.js"></script>
+<script src="js/wall-mode.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
