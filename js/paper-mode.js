@@ -1,29 +1,13 @@
 /**
- * paper-mode.js — AR Paper Tracing
+ * paper-mode.js — AR Paper Tracing Engine
  *
- * HOW THE LOCK WORKS (optical-flow approach):
- * ──────────────────────────────────────────
- * On LOCK:
- *   1. A hidden off-screen canvas grabs the current video frame at 1/4 res.
- *   2. We sample a grid of 7×7 = 49 "anchor" pixels from the centre
- *      region of that frame (pixel brightness values).
- *   3. We also note the paper's bounding rect from a corner-detection pass
- *      (the four bright corners of a white/light-coloured paper are found
- *      by scanning for high-luminance regions near each screen corner).
- *
- * Each frame after lock:
- *   4. A new low-res frame is sampled at the same grid positions.
- *   5. We do a block-match (search ±radius pixels) for each anchor to find
- *      where it moved → gives a motion vector per point.
- *   6. The *median* motion vector (pan dx, dy) is taken as the camera-to-
- *      paper translation, and the *scale ratio* of corner separations gives
- *      zoom.
- *   7. The sketch overlay is drawn as a sub-region of the full image,
- *      scaled so zoom-in shows finer detail and pan shows the matching part.
- *
- * Result: zoom in → see that portion of the sketch enlarged on paper.
- *         pan sideways → see the matching slice of the sketch.
- *         Works WITHOUT gyro/orientation permission.
+ * Features:
+ * - High-performance camera feed rendering
+ * - Smooth semi-transparent sketch overlay
+ * - Touch gestures: Drag to pan, Pinch to zoom/scale
+ * - Lock mode: Freezes overlay positioning so tracing on paper is rock-solid
+ * - Quick Zoom (+ / -) & Freeze View (still frame tracing)
+ * - 100% universal canvas API (no roundRect, no CORS/getImageData traps)
  */
 
 class PaperMode {
@@ -31,7 +15,7 @@ class PaperMode {
     this.canvas = canvasEl;
     this.ctx    = canvasEl.getContext('2d');
 
-    // hidden video element
+    // Video stream element
     this.video = document.createElement('video');
     this.video.setAttribute('playsinline', '');
     this.video.setAttribute('autoplay', '');
@@ -39,31 +23,30 @@ class PaperMode {
     this.cam = new CameraManager(this.video);
 
     this.overlayImage = null;
-    this.opacity      = 0.30;
+    this.opacity      = 0.35;
     this.isLocked     = false;
+    this.isFrozen     = false;
 
-    // ── Optical-flow state ──────────────────────
-    this._offCanvas  = document.createElement('canvas');
-    this._offCtx     = this._offCanvas.getContext('2d', { willReadFrequently: true });
-    this._OF_W       = 160;   // low-res analysis width
-    this._OF_H       = 90;    // low-res analysis height
-    this._offCanvas.width  = this._OF_W;
-    this._offCanvas.height = this._OF_H;
+    // Transform state
+    this.scale = 1.0;
+    this.panX  = 0;
+    this.panY  = 0;
 
-    this._refPixels  = null;  // Uint8Array of ref frame (RGBA, flat)
-    this._anchors    = [];    // [{ax, ay}] grid sample positions in OF space
-    this._GRID       = 6;     // 6×6 grid of anchors
-    this._SEARCH_R   = 8;     // search radius in pixels (OF space)
-    this._PATCH_R    = 3;     // half-width of matching patch
+    // Off-screen canvas for freeze-frame camera snapshot
+    this._freezeCanvas = document.createElement('canvas');
+    this._freezeCtx    = this._freezeCanvas.getContext('2d');
 
-    // accumulated pan/zoom relative to lock frame
-    this._panX  = 0;
-    this._panY  = 0;
-    this._zoom  = 1;
+    // Touch gesture tracking
+    this._touchStartDist = 0;
+    this._touchStartScale = 1.0;
+    this._lastTouchX = 0;
+    this._lastTouchY = 0;
+    this._isDragging = false;
 
-    this._rafId       = null;
-    this._scanning    = true;
-    this._scanPhase   = 0;
+    this._rafId = null;
+    this._scanPhase = 0;
+
+    this._bindTouchEvents();
   }
 
   /* ═══════════════════════════════════════════════════
@@ -73,10 +56,10 @@ class PaperMode {
   async start(imageObj) {
     this.overlayImage = imageObj;
     this.isLocked     = false;
-    this._refPixels   = null;
-    this._scanning    = true;
-    this._panX = this._panY = 0;
-    this._zoom = 1;
+    this.isFrozen     = false;
+    this.scale        = 1.0;
+    this.panX         = 0;
+    this.panY         = 0;
 
     this._resizeCanvas();
     this._resizeBound = () => this._resizeCanvas();
@@ -96,140 +79,97 @@ class PaperMode {
     if (this._resizeBound) window.removeEventListener('resize', this._resizeBound);
   }
 
-  setOpacity(v) { this.opacity = Math.max(0.05, Math.min(1, v)); }
+  setOpacity(v) {
+    this.opacity = Math.max(0.05, Math.min(1.0, v));
+  }
 
   lock() {
-    // Grab reference frame from current video
-    this._captureRefFrame();
-
-    if (!this._refPixels) return false;  // video not ready
-
-    this.isLocked  = true;
-    this._scanning = false;
-    this._panX = this._panY = 0;
-    this._zoom = 1;
-
-    if (navigator.vibrate) navigator.vibrate([30, 20, 60]);
+    this.isLocked = true;
+    if (navigator.vibrate) {
+      try { navigator.vibrate([30, 20, 60]); } catch (e) {}
+    }
     return true;
   }
 
   unlock() {
-    this.isLocked  = false;
-    this._refPixels = null;
-    this._scanning  = true;
-    this._panX = this._panY = 0;
-    this._zoom = 1;
+    this.isLocked = false;
+  }
+
+  toggleFreeze() {
+    if (!this.isFrozen) {
+      // Capture current video frame to freeze canvas
+      if (this.video.videoWidth && this.video.videoHeight) {
+        this._freezeCanvas.width  = this.canvas.width;
+        this._freezeCanvas.height = this.canvas.height;
+        this.cam.drawFrame(this._freezeCtx, this.canvas.width, this.canvas.height);
+        this.isFrozen = true;
+      }
+    } else {
+      this.isFrozen = false;
+    }
+    return this.isFrozen;
+  }
+
+  zoomIn() {
+    this.scale = Math.min(5.0, this.scale * 1.25);
+  }
+
+  zoomOut() {
+    this.scale = Math.max(0.2, this.scale / 1.25);
+  }
+
+  resetTransform() {
+    this.scale = 1.0;
+    this.panX  = 0;
+    this.panY  = 0;
   }
 
   /* ═══════════════════════════════════════════════════
-     OPTICAL FLOW — REFERENCE FRAME CAPTURE
+     TOUCH GESTURES (PAN & PINCH-TO-ZOOM)
   ═══════════════════════════════════════════════════ */
 
-  _captureRefFrame() {
-    const { _offCtx: ctx, _OF_W: W, _OF_H: H } = this;
-    if (!this.video.videoWidth) return;
+  _bindTouchEvents() {
+    const el = this.canvas;
 
-    ctx.drawImage(this.video, 0, 0, W, H);
-    const imgData = ctx.getImageData(0, 0, W, H);
-    this._refPixels = new Uint8Array(imgData.data.buffer);
+    el.addEventListener('touchstart', (e) => {
+      if (this.isLocked) return; // Ignore gesture adjustments when locked
 
-    // Build anchor grid in the central 60% of the frame
-    this._anchors = [];
-    const g   = this._GRID;
-    const mar = 0.20;  // 20% margin from edges
-    for (let gy = 0; gy < g; gy++) {
-      for (let gx = 0; gx < g; gx++) {
-        const ax = Math.round((mar + (gx / (g - 1)) * (1 - 2 * mar)) * W);
-        const ay = Math.round((mar + (gy / (g - 1)) * (1 - 2 * mar)) * H);
-        this._anchors.push({ ax, ay });
+      if (e.touches.length === 1) {
+        this._isDragging = true;
+        this._lastTouchX = e.touches[0].clientX;
+        this._lastTouchY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        this._isDragging = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        this._touchStartDist  = Math.hypot(dx, dy);
+        this._touchStartScale = this.scale;
       }
-    }
-  }
+    }, { passive: true });
 
-  /* ═══════════════════════════════════════════════════
-     OPTICAL FLOW — FRAME MATCHING
-  ═══════════════════════════════════════════════════ */
+    el.addEventListener('touchmove', (e) => {
+      if (this.isLocked) return;
 
-  _getLuminance(pixels, x, y, W) {
-    const i = (y * W + x) * 4;
-    // Clamp x,y to valid range to avoid edge artifacts
-    if (x < 0 || y < 0 || x >= W || y >= this._OF_H) return 128;
-    return 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-  }
-
-  _patchSAD(refPx, curPx, ax, ay, bx, by, W, H) {
-    // Sum of Absolute Differences over a patch around (ax,ay) vs (bx,by)
-    const r = this._PATCH_R;
-    let sad = 0;
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        const rx = Math.min(Math.max(ax + dx, 0), W - 1);
-        const ry = Math.min(Math.max(ay + dy, 0), H - 1);
-        const cx = Math.min(Math.max(bx + dx, 0), W - 1);
-        const cy = Math.min(Math.max(by + dy, 0), H - 1);
-        sad += Math.abs(this._getLuminance(refPx, rx, ry, W) -
-                        this._getLuminance(curPx, cx, cy, W));
+      if (e.touches.length === 1 && this._isDragging) {
+        const cx = e.touches[0].clientX;
+        const cy = e.touches[0].clientY;
+        this.panX += cx - this._lastTouchX;
+        this.panY += cy - this._lastTouchY;
+        this._lastTouchX = cx;
+        this._lastTouchY = cy;
+      } else if (e.touches.length === 2 && this._touchStartDist > 0) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const factor = dist / this._touchStartDist;
+        this.scale = Math.max(0.2, Math.min(5.0, this._touchStartScale * factor));
       }
-    }
-    return sad;
-  }
+    }, { passive: true });
 
-  _computeFlow() {
-    // Draw current frame to off-screen canvas at low res
-    const { _offCtx: ctx, _OF_W: W, _OF_H: H, _SEARCH_R: R } = this;
-    ctx.drawImage(this.video, 0, 0, W, H);
-    const curData = ctx.getImageData(0, 0, W, H);
-    const curPx   = new Uint8Array(curData.data.buffer);
-    const refPx   = this._refPixels;
-
-    const motions = [];
-
-    for (const { ax, ay } of this._anchors) {
-      let bestSAD = Infinity, bx = ax, by = ay;
-
-      // Block search ±R pixels
-      for (let sy = -R; sy <= R; sy++) {
-        for (let sx = -R; sx <= R; sx++) {
-          const cx = ax + sx, cy = ay + sy;
-          if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
-          const sad = this._patchSAD(refPx, curPx, ax, ay, cx, cy, W, H);
-          if (sad < bestSAD) { bestSAD = sad; bx = cx; by = cy; }
-        }
-      }
-
-      // Only use anchor if the best match is confident (low SAD)
-      const maxAcceptableSAD = (this._PATCH_R * 2 + 1) ** 2 * 30; // ~30 luma units avg
-      if (bestSAD < maxAcceptableSAD) {
-        motions.push({ dx: bx - ax, dy: by - ay });
-      }
-    }
-
-    if (motions.length < 4) return { dx: 0, dy: 0, scale: 1 };
-
-    // Median motion vector
-    const dxs = motions.map(m => m.dx).sort((a, b) => a - b);
-    const dys = motions.map(m => m.dy).sort((a, b) => a - b);
-    const mid  = Math.floor(motions.length / 2);
-    const dx   = dxs[mid];
-    const dy   = dys[mid];
-
-    // Estimate scale from spread of matched points
-    // If camera moved closer, same-size scene takes up more pixels → scale > 1
-    // We measure average motion magnitude and direction to infer zoom.
-    // Simplistic: if most vectors point outward from centre → zoom in
-    const cx = W / 2, cy = H / 2;
-    let zoomVotes = 0;
-    for (var _i = 0; _i < this._anchors.length; _i++) {
-      var outX = this._anchors[_i].ax - cx;
-      var outY = this._anchors[_i].ay - cy;
-      var dot  = outX * dx + outY * dy;
-      if (dot > 0) zoomVotes++;
-    }
-    const zoomBias = zoomVotes / this._anchors.length;
-    // Map 0→0.5→1 to scale 0.95→1→1.05 per-frame (cumulative)
-    const scaleDelta = 1 + (zoomBias - 0.5) * 0.04;
-
-    return { dx, dy, scale: scaleDelta };
+    el.addEventListener('touchend', () => {
+      this._isDragging = false;
+      this._touchStartDist = 0;
+    }, { passive: true });
   }
 
   /* ═══════════════════════════════════════════════════
@@ -246,103 +186,45 @@ class PaperMode {
     const { ctx, canvas } = this;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw live camera feed
-    this.cam.drawFrame(ctx, canvas.width, canvas.height);
+    // 1. Draw Background (Live Camera stream or Frozen Frame)
+    if (this.isFrozen && this._freezeCanvas.width) {
+      ctx.drawImage(this._freezeCanvas, 0, 0);
+    } else {
+      this.cam.drawFrame(ctx, canvas.width, canvas.height);
+    }
 
+    // 2. Draw Transformed Sketch Overlay
     if (this.overlayImage) {
-      if (this.isLocked && this._refPixels) {
-        this._updateFlow();
-        this._drawTrackedOverlay();
-      } else {
-        this._drawCentredOverlay();
-      }
+      this._drawOverlay();
     }
 
-    this._drawBrackets();
+    // 3. Draw AR HUD Brackets & Status
+    this._drawHUD();
   }
 
-  _updateFlow() {
-    if (!this.video.videoWidth) return;
-    try {
-      const { dx, dy, scale } = this._computeFlow();
-
-      // Convert OF-space motion to canvas-space motion
-      // OF is _OF_W × _OF_H, canvas is canvas.width × canvas.height
-      const scaleX = this.canvas.width  / this._OF_W;
-      const scaleY = this.canvas.height / this._OF_H;
-
-      // dx/dy in OF space → paper moved LEFT so sketch should pan RIGHT
-      this._panX -= dx * scaleX;
-      this._panY -= dy * scaleY;
-
-      // Accumulate zoom (clamped to sensible range)
-      this._zoom = Math.max(0.25, Math.min(8, this._zoom * scale));
-    } catch (e) {
-      // Silently ignore any frame read errors
-    }
-  }
-
-  _drawTrackedOverlay() {
+  _drawOverlay() {
     const { ctx, canvas, overlayImage: img } = this;
     const W = canvas.width, H = canvas.height;
 
-    // Base fit: how large is the full sketch at zoom=1 (fills screen)
-    const baseScale = Math.min(W / img.width, H / img.height);
-    const iw = img.width  * baseScale;
-    const ih = img.height * baseScale;
-
-    // At the locked moment the sketch fills the screen.
-    // When _zoom increases (camera moved closer), we show a smaller
-    // portion of the sketch → crop into it.
-    const visW = iw / this._zoom;
-    const visH = ih / this._zoom;
-
-    // Pan offset: centre of the visible window in sketch coords
-    // _panX/Y accumulate how much the paper has shifted on screen
-    // → the sketch window centre moves in the opposite direction
-    const centreX = img.width  / 2 - (this._panX / this._zoom) / baseScale;
-    const centreY = img.height / 2 - (this._panY / this._zoom) / baseScale;
-
-    // Source crop in image space
-    const srcW = visW / baseScale;
-    const srcH = visH / baseScale;
-    const srcX = centreX - srcW / 2;
-    const srcY = centreY - srcH / 2;
+    // Base fit scale to fit sketch inside screen while preserving aspect ratio
+    const baseFit = Math.min(W / img.width, H / img.height) * 0.90;
+    const iw = img.width  * baseFit * this.scale;
+    const ih = img.height * baseFit * this.scale;
 
     ctx.save();
     ctx.globalAlpha = this.opacity;
 
-    // Draw the cropped portion of the sketch to fill the screen
-    ctx.drawImage(
-      img,
-      srcX, srcY, srcW, srcH,   // source (sub-region of image)
-      0,    0,    W,    H        // destination (full canvas)
-    );
+    // Position at canvas center + user pan offsets
+    const cx = W / 2 + this.panX;
+    const cy = H / 2 + this.panY;
+
+    ctx.translate(cx, cy);
+    ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
 
     ctx.restore();
   }
 
-  _drawCentredOverlay() {
-    const { ctx, canvas } = this;
-    const { iw, ih } = this._fitImage();
-    ctx.save();
-    ctx.globalAlpha = this.opacity * 0.5;
-    ctx.drawImage(this.overlayImage,
-      (canvas.width - iw) / 2, (canvas.height - ih) / 2, iw, ih);
-    ctx.restore();
-  }
-
-  _fitImage() {
-    const { canvas, overlayImage: img } = this;
-    const scale = Math.min(canvas.width / img.width, canvas.height / img.height) * 0.92;
-    return { iw: img.width * scale, ih: img.height * scale };
-  }
-
-  /* ═══════════════════════════════════════════════════
-     UI DECORATIONS
-  ═══════════════════════════════════════════════════ */
-
-  _drawBrackets() {
+  _drawHUD() {
     const { ctx, canvas } = this;
     const W = canvas.width, H = canvas.height;
     const bSize = 36, bThick = 3, margin = 28;
@@ -351,6 +233,7 @@ class PaperMode {
     this._scanPhase = (this._scanPhase + 1) % 120;
     const alpha = this.isLocked ? 1 : 0.5 + 0.5 * Math.sin(this._scanPhase * (Math.PI / 60));
 
+    // Corner brackets
     ctx.save();
     ctx.strokeStyle = col;
     ctx.lineWidth   = bThick;
@@ -365,18 +248,19 @@ class PaperMode {
     ];
     for (const [x, y, sx, sy] of corners) {
       ctx.beginPath();
-      ctx.moveTo(x + sx * bSize, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * bSize);
+      ctx.moveTo(x + sx * bSize, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + sy * bSize);
       ctx.stroke();
     }
     ctx.restore();
 
-    // Lock indicator
+    // Lock & Zoom Status Badge
     if (this.isLocked) {
       ctx.save();
-      // Portable rounded rect (works on all Chrome/Android versions)
-      ctx.fillStyle = 'rgba(0,0,0,0.60)';
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
       ctx.beginPath();
-      var rx = W / 2 - 56, ry = margin - 6, rw = 112, rh = 28, rad = 14;
+      var rx = W / 2 - 65, ry = margin - 6, rw = 130, rh = 30, rad = 15;
       ctx.moveTo(rx + rad, ry);
       ctx.lineTo(rx + rw - rad, ry);
       ctx.arcTo(rx + rw, ry, rx + rw, ry + rad, rad);
@@ -388,11 +272,13 @@ class PaperMode {
       ctx.arcTo(rx, ry, rx + rad, ry, rad);
       ctx.closePath();
       ctx.fill();
+
       ctx.fillStyle    = '#22c55e';
       ctx.font         = 'bold 13px Inter, sans-serif';
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('\u2713  LOCKED  \u00d7' + this._zoom.toFixed(1), W / 2, margin + 8);
+      const zoomTxt = this.scale !== 1.0 ? ' · ' + Math.round(this.scale * 100) + '%' : '';
+      ctx.fillText('🔒 LOCKED' + zoomTxt, W / 2, margin + 9);
       ctx.restore();
     }
   }

@@ -15,7 +15,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/style.css?v=4" />
+  <link rel="stylesheet" href="css/style.css?v=5" />
 </head>
 <body>
 
@@ -128,10 +128,22 @@
         <span class="slider-label" style="min-width:32px;text-align:right;font-size:11px;" id="paper-op-val">30%</span>
       </div>
 
-      <!-- Lock button row -->
-      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
-        <button id="lock-btn" class="scanning" aria-label="Lock overlay to paper">🎯</button>
-        <p class="lock-status" id="lock-status">Point at your paper, then tap Lock</p>
+      <!-- Controls Row: Zoom -, Lock, Zoom +, Freeze -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;">
+        <div style="display:flex;gap:6px;">
+          <button class="ar-btn" id="paper-zoom-out" aria-label="Zoom out sketch" title="Zoom out" style="padding:10px 14px;font-size:16px;">➖</button>
+          <button class="ar-btn" id="paper-reset-btn" aria-label="Reset position" title="Reset align" style="padding:10px 12px;font-size:15px;">↺</button>
+        </div>
+
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <button id="lock-btn" class="scanning" aria-label="Lock overlay to paper">🎯</button>
+          <p class="lock-status" id="lock-status">Align sketch, then tap Lock</p>
+        </div>
+
+        <div style="display:flex;gap:6px;">
+          <button class="ar-btn" id="paper-freeze-btn" aria-label="Freeze view" title="Still frame mode" style="padding:10px 12px;font-size:13px;">❄️ Frame</button>
+          <button class="ar-btn" id="paper-zoom-in" aria-label="Zoom in sketch" title="Zoom in" style="padding:10px 14px;font-size:16px;">➕</button>
+        </div>
       </div>
     </div>
   </div>
@@ -265,11 +277,11 @@
 </div>
 
 <!-- Scripts loaded in dependency order (no ES modules — works on file:// and GitHub Pages) -->
-<script src="js/sw-register.js?v=4"></script>
-<script src="js/camera.js?v=4"></script>
-<script src="js/paper-mode.js?v=4"></script>
-<script src="js/wall-mode.js?v=4"></script>
-<script src="js/app.js?v=4"></script>
+<script src="js/sw-register.js?v=5"></script>
+<script src="js/camera.js?v=5"></script>
+<script src="js/paper-mode.js?v=5"></script>
+<script src="js/wall-mode.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
 
 <script>
 (function() {

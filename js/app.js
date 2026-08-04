@@ -102,13 +102,14 @@ function initPicker() {
 }
 
 /* ─── PAPER MODE ────────────────────────────────── */
-var paperLockBtn, paperStatus, paperSlider, paperSliderVal;
+var paperLockBtn, paperStatus, paperSlider, paperSliderVal, paperFreezeBtn;
 
 function initPaperScreen() {
   paperLockBtn   = document.getElementById('lock-btn');
   paperStatus    = document.getElementById('lock-status');
   paperSlider    = document.getElementById('paper-opacity');
   paperSliderVal = document.getElementById('paper-op-val');
+  paperFreezeBtn = document.getElementById('paper-freeze-btn');
 
   paperSlider.addEventListener('input', function() {
     setSliderFill(paperSlider);
@@ -119,23 +120,49 @@ function initPaperScreen() {
   paperLockBtn.addEventListener('click', function() {
     if (!paperMode) return;
     if (!paperMode.isLocked) {
-      var locked = paperMode.lock();
-      if (locked) {
-        paperLockBtn.classList.remove('scanning');
-        paperLockBtn.classList.add('locked');
-        paperLockBtn.textContent = '🔒';
-        paperStatus.textContent  = 'Locked — move camera to track!';
-        paperStatus.className    = 'lock-status locked';
-      } else {
-        showToast('Camera not ready yet — wait a moment and try again.', 'error');
-      }
+      paperMode.lock();
+      paperLockBtn.classList.remove('scanning');
+      paperLockBtn.classList.add('locked');
+      paperLockBtn.textContent = '🔒';
+      paperStatus.textContent  = '🔒 Overlay Locked — trace on paper!';
+      paperStatus.className    = 'lock-status locked';
+      showToast('Position locked! Dragging disabled while locked.', 'success');
     } else {
       paperMode.unlock();
       paperLockBtn.classList.remove('locked');
       paperLockBtn.classList.add('scanning');
       paperLockBtn.textContent = '🎯';
-      paperStatus.textContent  = 'Point at paper, then tap Lock';
+      paperStatus.textContent  = 'Align sketch, then tap Lock';
       paperStatus.className    = 'lock-status';
+    }
+  });
+
+  document.getElementById('paper-zoom-in').addEventListener('click', function() {
+    if (paperMode) paperMode.zoomIn();
+  });
+
+  document.getElementById('paper-zoom-out').addEventListener('click', function() {
+    if (paperMode) paperMode.zoomOut();
+  });
+
+  document.getElementById('paper-reset-btn').addEventListener('click', function() {
+    if (paperMode) {
+      paperMode.resetTransform();
+      showToast('Position & Zoom reset.', '');
+    }
+  });
+
+  paperFreezeBtn.addEventListener('click', function() {
+    if (!paperMode) return;
+    var frozen = paperMode.toggleFreeze();
+    if (frozen) {
+      paperFreezeBtn.textContent = '▶ Live';
+      paperFreezeBtn.classList.add('accent');
+      showToast('Frame frozen for steady tracing.', 'success');
+    } else {
+      paperFreezeBtn.textContent = '❄️ Frame';
+      paperFreezeBtn.classList.remove('accent');
+      showToast('Live camera resumed.', '');
     }
   });
 
@@ -153,11 +180,15 @@ function resetPaperUI() {
   if (!paperLockBtn) return;
   paperLockBtn.classList.remove('scanning', 'locked');
   paperLockBtn.textContent = '🎯';
-  paperStatus.textContent  = 'Hold steady over paper, then tap Lock';
+  paperStatus.textContent  = 'Align sketch, then tap Lock';
   paperStatus.className    = 'lock-status';
   paperSlider.value        = 30;
   setSliderFill(paperSlider);
   if (paperSliderVal) paperSliderVal.textContent = '30%';
+  if (paperFreezeBtn) {
+    paperFreezeBtn.textContent = '❄️ Frame';
+    paperFreezeBtn.classList.remove('accent');
+  }
 }
 
 function startPaperMode() {
