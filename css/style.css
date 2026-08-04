@@ -37,13 +37,19 @@ html, body {
 /* ── SCREENS ─────────────────────────────── */
 .screen {
   position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  opacity: 0; pointer-events: none;
+  display: none !important; flex-direction: column;
+  opacity: 0; pointer-events: none !important;
   transform: translateY(24px);
   transition: opacity .35s ease, transform .35s ease;
   overflow: hidden;
+  z-index: 1;
 }
-.screen.active { opacity: 1; pointer-events: all; transform: translateY(0); }
+.screen.active {
+  display: flex !important;
+  opacity: 1; pointer-events: auto !important;
+  transform: translateY(0);
+  z-index: 100;
+}
 
 /* ── HOME ────────────────────────────────── */
 #screen-home {
